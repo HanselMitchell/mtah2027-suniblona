@@ -1,0 +1,5 @@
+numpy==2.5.3
+pandas==3.0.5
+kloppy==3.18.0
+lightgbm==4.7.0
+pyarrow==26.0.1
