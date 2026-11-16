@@ -1,9 +1,9 @@
 """Step 8: label every frame of the competition match.
 
-    python scripts/predict.py --data-dir "C:\\path\\to\\dataset barcelona" --out outputs\\TEAM.csv
+    python scripts/predict.py            # -> submission/suniblona.csv
 
-Needs data/atd/BAR-ATH_tactical.npz (scripts/convert_atd.py), models/final_*.txt
-(scripts/train_final.py) and configs/decode.json.
+Needs data/atd/BAR-ATH_tactical.npz (scripts/convert_atd.py), models/*
+(scripts/train_final.py), configs/model.json and configs/decode.json.
 
 Output: frame,label for all 199,319 video frames. Graded halves are labelled
 H/A/D by the model + Viterbi (decoded separately per half); everything outside
@@ -42,11 +42,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-dir", default=os.environ.get("MTAH_DATA_DIR"),
                         help="folder with tactical/ (only used to check team order)")
-    parser.add_argument("--out", default=os.path.join(ROOT, "outputs", "submission.csv"))
+    parser.add_argument("--out", default=os.path.join(ROOT, "submission", "suniblona.csv"))
     args = parser.parse_args()
 
     if args.data_dir:
         meta = os.path.join(args.data_dir, "tactical", "BAR-ATH_tactical_atd.xml")
+        if not os.path.isfile(meta):  # tactical metadata missing: same match, other recording
+            meta = os.path.join(args.data_dir, "broadcast", "BAR-ATH_broadcast_atd.xml")
         home = home_team_name(meta)
         print("home team in ATD: {}".format(home))
         if "barcelona" not in home.lower():
@@ -61,14 +63,21 @@ def main():
         period[first:last + 1] = h
     arrays["period"] = period
 
+    with open(os.path.join(ROOT, "configs", "model.json")) as fh:
+        cfg = json.load(fh)
     print("building features ...", flush=True)
-    X, names = build_features(arrays)
-    with open(os.path.join(ROOT, "models", "final_features.txt")) as fh:
+    X, names = build_features(arrays, version=cfg["feat"])
+    with open(os.path.join(ROOT, "models", "features.txt")) as fh:
         trained = fh.read().split("\n")
     if names != trained:
         sys.exit("feature list differs from the trained model -- retrain.")
-    models = M.load(os.path.join(ROOT, "models", "final"))
-    proba = M.predict_proba(models, X)
+    proba, wsum = 0.0, 0.0
+    for mem in cfg["members"]:
+        models = M.load(os.path.join(ROOT, "models", mem["name"]), backend=mem["backend"])
+        w = float(mem.get("weight", 1.0))
+        proba = proba + w * M.predict_proba(models, X)
+        wsum += w
+    proba = proba / wsum
     with open(os.path.join(ROOT, "configs", "decode.json")) as fh:
         params = json.load(fh)
 

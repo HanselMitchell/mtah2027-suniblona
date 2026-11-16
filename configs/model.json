@@ -1,0 +1,7 @@
+{
+  "feat": 2,
+  "members": [
+    {"name": "lgb_c2", "backend": "lgb", "corrupt": 2, "params": {}, "weight": 1.0},
+    {"name": "lgb_c3", "backend": "lgb", "corrupt": 3, "params": {}, "weight": 1.0}
+  ]
+}

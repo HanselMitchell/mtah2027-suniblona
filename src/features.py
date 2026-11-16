@@ -76,7 +76,7 @@ def _nanstat(fn, a, axis=1):
 
 # ---------------------------------------------------------------------------------------
 
-def build_features(arrays):
+def build_features(arrays, version=2):
     ball = arrays["ball"].astype(np.float64)
     home = arrays["home"].astype(np.float64)
     away = arrays["away"].astype(np.float64)
@@ -236,8 +236,143 @@ def build_features(arrays):
         first[idx] = idx[0]
     f["period_time_s"] = (t - first) / FPS
 
+    if version >= 2:
+        _features_v2(f, ball, home, away, eff, seen, nearest_home, dh, da, length, width)
+
     names = list(f.keys())
     X = np.empty((n, len(names)), dtype=np.float32)
     for j, k in enumerate(names):
         X[:, j] = f[k]
     return X, names
+
+
+# ---------------------------------------------------------------------------------------
+# v2: ball dynamics, touches, control, line context, multi-scale team distances
+
+def _ffill_value(valid, values, default=np.nan):
+    idx = _ffill_idx(valid)
+    return np.where(idx >= 0, values[np.maximum(idx, 0)], default), idx
+
+
+def _bfill_value(valid, values, default=np.nan):
+    n = len(valid)
+    idx = _bfill_idx(valid)
+    return np.where(idx < n, values[np.minimum(idx, n - 1)], default), idx
+
+
+def _rolling_extreme(x, w, side, fn):
+    """Min/max of x over a past/future window, NaN-aware, via a strided view."""
+    n = len(x)
+    pad = np.full(w, np.nan)
+    if side == "past":
+        xp = np.concatenate([pad, x])
+        view = np.lib.stride_tricks.sliding_window_view(xp, w + 1)[:n]
+    else:
+        xp = np.concatenate([x, pad])
+        view = np.lib.stride_tricks.sliding_window_view(xp, w + 1)[:n]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        return fn(view, axis=1)
+
+
+def _features_v2(f, ball, home, away, eff, seen, nearest_home, dh, da, length, width):
+    n = len(ball)
+    t = np.arange(n)
+
+    # ---- ball velocity, acceleration and change of direction (kicks, deflections) -------
+    vel = np.full((n, 2), np.nan)
+    lag = 3
+    vel[lag:] = (ball[lag:] - ball[:-lag]) * (FPS / lag)          # velocity over (t-3, t]
+    sp = np.linalg.norm(vel, axis=1)
+    vel[sp > 45] = np.nan
+    v_past = vel
+    v_fut = np.full((n, 2), np.nan)
+    v_fut[:-lag] = vel[lag:]                                      # velocity over (t, t+3]
+    dv = np.linalg.norm(v_fut - v_past, axis=1)
+    f["ball_dv"] = dv
+    sp_p = np.linalg.norm(v_past, axis=1)
+    sp_f = np.linalg.norm(v_fut, axis=1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        cosang = np.sum(v_past * v_fut, axis=1) / (sp_p * sp_f)
+    cosang[(sp_p < 1.5) | (sp_f < 1.5)] = np.nan                  # direction meaningless when slow
+    f["ball_turn_cos"] = cosang
+    f["ball_speed_gain"] = sp_f - sp_p
+    for w in (12, 50, 125):
+        f["ball_dv_max_past%d" % w] = _rolling_extreme(np.nan_to_num(dv, nan=0.0), w, "past", np.nanmax)
+        f["ball_dv_max_fut%d" % w] = _rolling_extreme(np.nan_to_num(dv, nan=0.0), w, "future", np.nanmax)
+        f["ball_speed_max_past%d" % w] = _rolling_extreme(sp_p, w, "past", np.nanmax)
+        f["ball_speed_max_fut%d" % w] = _rolling_extreme(sp_p, w, "future", np.nanmax)
+
+    # ---- touches: a velocity change with a player close to the ball -------------------
+    dmin = np.fmin(dh, da)
+    touch = seen & np.isfinite(dv) & (dv > 2.0) & (dmin < 2.5)
+    touch_team = nearest_home                                      # 1 home, 0 away
+    lt, lt_idx = _ffill_value(touch, touch_team)
+    nt, nt_idx = _bfill_value(touch, touch_team)
+    f["last_touch_home"] = lt
+    f["next_touch_home"] = nt
+    f["since_touch_s"] = np.where(lt_idx >= 0, t - lt_idx, 3000).clip(0, 3000) / FPS
+    f["until_touch_s"] = np.where(nt_idx < n, nt_idx - t, 3000).clip(0, 3000) / FPS
+    f["touch_same_team"] = np.where(np.isfinite(lt) & np.isfinite(nt), (lt == nt).astype(float), np.nan)
+    # second-to-last touch: does the possession look like a chain of same-team touches?
+    prev_idx = np.where(lt_idx > 0, lt_idx - 1, 0)
+    lt_idx_prev = _ffill_idx(touch)[prev_idx]
+    lt2 = np.where((lt_idx > 0) & (lt_idx_prev >= 0), touch_team[np.maximum(lt_idx_prev, 0)], np.nan)
+    f["last2_touch_same"] = np.where(np.isfinite(lt) & np.isfinite(lt2), (lt == lt2).astype(float), np.nan)
+    tt = np.where(touch, touch_team, np.nan)
+    for w in (50, 125, 250, 500):
+        f["touch_home_past%d" % w] = _nan_rolling(tt, w, "past")
+        f["touch_home_fut%d" % w] = _nan_rolling(tt, w, "future")
+        f["touch_rate_past%d" % w] = _nan_rolling(touch.astype(float), w, "past")
+        f["touch_rate_fut%d" % w] = _nan_rolling(touch.astype(float), w, "future")
+
+    # ---- control: ball slow and a player on it ------------------------------------------
+    ctrl = seen & np.isfinite(sp_p) & (sp_p < 7.0) & (dmin < 1.5)
+    lc, lc_idx = _ffill_value(ctrl, touch_team)
+    nc, nc_idx = _bfill_value(ctrl, touch_team)
+    f["last_ctrl_home"] = lc
+    f["next_ctrl_home"] = nc
+    f["since_ctrl_s"] = np.where(lc_idx >= 0, t - lc_idx, 3000).clip(0, 3000) / FPS
+    f["until_ctrl_s"] = np.where(nc_idx < n, nc_idx - t, 3000).clip(0, 3000) / FPS
+    ct = np.where(ctrl, touch_team, np.nan)
+    for w in (25, 125, 500):
+        f["ctrl_home_past%d" % w] = _nan_rolling(ct, w, "past")
+        f["ctrl_home_fut%d" % w] = _nan_rolling(ct, w, "future")
+
+    # ---- nearest-team switches: how contested is the ball -------------------------------
+    nh = np.where(np.isfinite(nearest_home), nearest_home, np.nan)
+    nh_ff, _ = _ffill_value(np.isfinite(nh), nh)
+    flip = np.zeros(n)
+    flip[1:] = (nh_ff[1:] != nh_ff[:-1]) & np.isfinite(nh_ff[1:]) & np.isfinite(nh_ff[:-1])
+    for w in (25, 125):
+        f["nearest_flip_past%d" % w] = _nan_rolling(flip, w, "past")
+        f["nearest_flip_fut%d" % w] = _nan_rolling(flip, w, "future")
+
+    # ---- per-team distance to the ball over several scales -------------------------------
+    for side, d in (("h", dh), ("a", da)):
+        for w in (25, 125):
+            f["%s_d1_min_past%d" % (side, w)] = _rolling_extreme(np.where(seen, d, np.nan), w, "past", np.nanmin)
+            f["%s_d1_min_fut%d" % (side, w)] = _rolling_extreme(np.where(seen, d, np.nan), w, "future", np.nanmin)
+
+    # ---- line context: where was the ball when it was lost / found ----------------------
+    bx, by = ball[:, 0], ball[:, 1]
+    d_line_signed = np.minimum.reduce([bx, length - bx, by, width - by])  # < 0 outside
+    f["ball_outside"] = np.where(seen, (d_line_signed < 0).astype(float), np.nan)
+    ls_dl, _ = _ffill_value(seen, d_line_signed)
+    ns_dl, _ = _bfill_value(seen, d_line_signed)
+    f["lastseen_d_line"] = ls_dl
+    f["nextseen_d_line"] = ns_dl
+    ls_sp, _ = _ffill_value(seen & np.isfinite(sp_p), sp_p)
+    f["lastseen_speed"] = ls_sp
+    ns_sp, _ = _bfill_value(seen & np.isfinite(sp_f), sp_f)
+    f["nextseen_speed"] = ns_sp
+    for w in (50, 250):
+        f["d_line_min_past%d" % w] = _rolling_extreme(np.where(seen, d_line_signed, np.nan), w, "past", np.nanmin)
+        f["d_line_min_fut%d" % w] = _rolling_extreme(np.where(seen, d_line_signed, np.nan), w, "future", np.nanmin)
+
+    # ---- ball position relative to each team's goal-side (sign-free attack proxy) ------
+    hx = _nanstat(np.nanmean, home[:, :, 0])
+    ax_ = _nanstat(np.nanmean, away[:, :, 0])
+    # +: ball lies beyond the away block as seen from the home block (home attacking end)
+    direction = np.sign(ax_ - hx)
+    f["ball_adv_home"] = (eff[:, 0] - (hx + ax_) / 2) * direction

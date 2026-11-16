@@ -9,7 +9,13 @@ Every number here comes from the aggregate noise profile of the ATD
   * a minority of gaps (~10% of missing frames) happen with players moving fast,
     i.e. during live play, typically 5-13 s long;
   * ~10.2 of 11 players per team are tracked, in fragments of median ~30 s;
-  * small position jitter, and ~0.2% of ball steps are implausible jumps.
+  * small position jitter, and ~0.2% of ball steps are implausible jumps;
+  * (version 2) the ATD ball trajectory is temporally smoothed by the provider:
+    the change of ball velocity across 3 frames has p90 ~2.2 m/s and p99 ~4.2 m/s
+    on graded ATD frames, against 6.3 / 17.9 in IDSSE. A Gaussian smoothing of the
+    clean ball with sigma ~ U(5, 7) frames reproduces those percentiles
+    (0.71/1.36/2.53/5.1 at sigma 5, 0.67/1.27/2.04/3.76 at sigma 7, vs ATD
+    0.68/1.40/2.16/4.21 for p50/p75/p90/p99), while ball speed is preserved.
 
 Parameters are drawn from ranges rather than fixed, so the model does not learn
 one exact corruption.
@@ -35,10 +41,26 @@ def _smooth_noise(rng, n, dims, sigma, knot=2 * FPS):
                     axis=1).astype(np.float32)
 
 
-def corrupt(arrays, seed):
+def _gauss_smooth(x, sigma, period):
+    """Gaussian smoothing of (T, 2) positions, separately within each period."""
+    r = int(3 * sigma)
+    k = np.exp(-0.5 * (np.arange(-r, r + 1) / sigma) ** 2)
+    k /= k.sum()
+    out = x.copy()
+    for p in np.unique(period):
+        idx = np.flatnonzero(period == p)
+        for d in range(x.shape[1]):
+            col = x[idx, d].astype(np.float64)
+            out[idx, d] = np.convolve(np.pad(col, r, mode="edge"), k, mode="valid")
+    return out
+
+
+def corrupt(arrays, seed, version=2):
     rng = np.random.default_rng(seed)
     out = dict(arrays)
     ball = arrays["ball"].copy()
+    if version >= 2:
+        ball = _gauss_smooth(ball, rng.uniform(5.0, 7.0), arrays["period"])
     alive = arrays["alive"]
     period = arrays["period"]
     n = len(ball)
@@ -78,6 +100,29 @@ def corrupt(arrays, seed):
     for _ in range(rng.integers(5, 25)):
         c = rng.integers(n)
         hide[c:c + rng.integers(1, 25)] = True
+
+    if version >= 3:
+        # (v3) the ATD practically never sees the ball beyond the lines (4.2% of visible graded
+        # frames vs 16% in v2-corrupted IDSSE, whose DFL feed parks a dead ball outside)
+        length, width = [float(v) for v in arrays["pitch"]]
+        bx, by = ball[:, 0], ball[:, 1]
+        d_line = np.minimum.reduce([bx, length - bx, by, width - by])
+        hide |= np.isfinite(d_line) & (d_line < -rng.uniform(0.3, 1.5))
+        # (v3) the ATD re-acquires a lost ball once it is struck: after a gap of >= 1 s the
+        # first visible step has median speed ~12 m/s (p25 5, p75 17) vs ~0.4 m/s in v2.
+        # Extend each such gap until the (clean) ball starts moving.
+        spd = np.zeros(n)
+        spd[1:] = np.linalg.norm(np.diff(ball, axis=0), axis=1) * FPS
+        moving = spd > rng.uniform(3.0, 6.0)
+        starts, ends = _runs(hide)
+        cap = int(15 * FPS)
+        for s, e in zip(starts, ends):
+            if e - s < FPS or e >= n:
+                continue
+            nxt = np.flatnonzero(moving[e:min(n, e + cap)])
+            stop = e + (nxt[0] if len(nxt) else 0)
+            if period[min(stop, n - 1)] == period[s]:
+                hide[e:stop] = True
 
     ball[hide] = np.nan
     # slowly varying position error (white noise would inflate speeds) and rare jumps

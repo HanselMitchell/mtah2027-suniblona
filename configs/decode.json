@@ -1,6 +1,8 @@
 {
-  "c_ha": 8.0,
-  "c_to_d": 10.0,
-  "c_from_d": 25.0,
-  "floor": 0.0001
+  "c_ha": 2.0,
+  "c_to_d": 32.0,
+  "c_from_d": 60.0,
+  "floor": 0.0001,
+  "min_poss": 30,
+  "min_dead": 1
 }

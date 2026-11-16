@@ -1,10 +1,34 @@
-# Competition data and IDSSE downloads never go in git
+# ---- Match data: licensed for the competition only, NEVER redistribute ----------------
+# (RULES.md: the repository is public and the data is not redistributable)
 data/
 *.mp4
-*.npz
-*.parquet
+*.mkv
+*.avi
+*_atd.txt
+*_atd.xml
+*_homography.csv
+*_smart_tagging.xml
+*_possession_gt*.csv
+*_possession_gt*.json
+BAR-ATH*
+Tactical/
+Broadcast/
+tactical/
+broadcast/
+# raw XML / text dumps of any provider (IDSSE downloads included -- large, fetched by script)
+*.xml
+*.txt
+!requirements.txt
+!configs/*.txt
 
-# Outputs
+# Derived per-frame arrays that could reconstruct the tracking
+*.npz
+*.npy
+*.parquet
+*.pkl
+
+# Outputs and every CSV (submissions are uploaded through the form and regenerated
+# by scripts/predict.py; a per-frame label file is not something to publish)
 outputs/
 models/
 *.csv
@@ -15,4 +39,8 @@ __pycache__/
 .venv/
 venv/
 .ipynb_checkpoints/
+catboost_info/
 .DS_Store
+
+# logs
+*.log
