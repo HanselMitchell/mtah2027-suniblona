@@ -1,0 +1,708 @@
+
+\documentclass[11pt,a4paper]{article}
+
+% =========================================================
+% PACKAGES
+% =========================================================
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[english]{babel}
+\usepackage[a4paper,margin=2.35cm]{geometry}
+
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{graphicx}
+\usepackage{pdflscape}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage[protrusion=true,expansion=false]{microtype}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{lastpage}
+
+% =========================================================
+% PAGE LAYOUT
+% =========================================================
+
+\geometry{headheight=14pt}
+
+\setlength{\parindent}{1.2em}
+\setlength{\parskip}{2pt}
+\setlength{\emergencystretch}{2em}
+\setlength{\tabcolsep}{5pt}
+
+\renewcommand{\arraystretch}{1.15}
+
+\setlist[itemize]{
+    leftmargin=1.6em,
+    itemsep=2pt,
+    topsep=3pt,
+    parsep=0pt
+}
+
+\setlist[enumerate]{
+    leftmargin=1.8em,
+    itemsep=2pt,
+    topsep=3pt,
+    parsep=0pt
+}
+
+% Compact heading spacing
+\titlespacing*{\section}{0pt}{16pt}{6pt}
+\titlespacing*{\subsection}{0pt}{10pt}{3pt}
+\titlespacing*{\subsubsection}{0pt}{7pt}{2pt}
+
+\titleformat{\section}
+    {\large\bfseries}
+    {\thesection.}
+    {0.6em}
+    {}
+
+\titleformat{\subsection}
+    {\normalsize\bfseries}
+    {\thesubsection}
+    {0.6em}
+    {}
+
+% =========================================================
+% HYPERLINKS AND HEADERS
+% =========================================================
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=black,
+    urlcolor=blue!55!black,
+    citecolor=black,
+    pdftitle={Ball Possession from Automatic Tracking},
+    pdfauthor={team Suniblona}
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+
+\lhead{\small More Than A Hack 2027}
+\rhead{\small team Suniblona}
+\cfoot{\small\thepage\ of \pageref{LastPage}}
+
+% =========================================================
+% CODE LISTING STYLES
+% =========================================================
+
+\lstdefinestyle{python}{
+    language=Python,
+    basicstyle=\ttfamily\footnotesize,
+    columns=fullflexible,
+    keepspaces=true,
+    breaklines=true,
+    breakatwhitespace=false,
+    frame=single,
+    rulecolor=\color{black!25},
+    backgroundcolor=\color{black!2},
+    xleftmargin=0.4em,
+    xrightmargin=0.4em,
+    aboveskip=0.6em,
+    belowskip=0.6em,
+    showstringspaces=false,
+    tabsize=4,
+    numbers=left,
+    numberstyle=\tiny\color{black!50},
+    numbersep=8pt
+}
+
+\lstdefinestyle{terminal}{
+    basicstyle=\ttfamily\footnotesize,
+    columns=fullflexible,
+    keepspaces=true,
+    breaklines=true,
+    frame=single,
+    rulecolor=\color{black!25},
+    backgroundcolor=\color{black!2},
+    xleftmargin=0.4em,
+    xrightmargin=0.4em,
+    aboveskip=0.6em,
+    belowskip=0.6em,
+    showstringspaces=false
+}
+
+\lstset{style=python}
+
+% =========================================================
+% COLUMN HELPERS
+% =========================================================
+
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+
+% =========================================================
+% DOCUMENT
+% =========================================================
+
+\begin{document}
+
+% =========================================================
+% COVER
+% =========================================================
+
+\begin{titlepage}
+    \centering
+
+    \vspace*{2.2cm}
+
+    {\Large\bfseries More Than A Hack 2027\par}
+
+    \vspace{0.8cm}
+
+    {\huge\bfseries Ball Possession from Automatic Tracking\par}
+
+    \vspace{0.35cm}
+
+    {\Large Technical Document\par}
+
+    \vspace{1.2cm}
+
+    {\large Ball Possession \& Spell Classification\par}
+
+    \vfill
+
+    {\large\bfseries team suniblona\par}
+
+    \vspace{0.5cm}
+
+    {\large 2027\par}
+
+    \vspace*{1.5cm}
+\end{titlepage}
+
+% =========================================================
+% TABLE OF CONTENTS
+% =========================================================
+
+\pagenumbering{roman}
+\tableofcontents
+\clearpage
+\pagenumbering{arabic}
+
+% =========================================================
+% 1. THE APPROACH
+% =========================================================
+
+\section{The Approach}
+
+\subsection{Problem Formulation and Design Decisions}
+
+We reconstruct ball possession from automatic tracking data (ATD), assigning every graded tactical-video frame one of three states: \texttt{H} for home possession, \texttt{A} for away possession, and \texttt{D} for a dead-ball situation. The problem is not simply to identify which team is closest to the ball at each frame. Football possession is continuous, and the tracking feed itself is imperfect: the ball can disappear during active play, player tracks can become fragmented, and several players may contest the ball without an immediate change of possession. A useful solution therefore needs to reason about both the evidence available in an individual frame and the temporal structure surrounding it.
+
+Our final system combines a two-stage LightGBM classifier with a semi-Markov Viterbi decoder. The classifier produces probabilities for the three possession states using 211 team-level spatial and temporal features. The decoder then converts those probabilities into possession intervals by penalizing unnecessary state changes and enforcing minimum segment durations. We chose this separation because the two components solve different parts of the problem: gradient boosting is effective at combining heterogeneous tracking features, while a structured decoder prevents uncertain local predictions from becoming implausible possession sequences.
+
+The classifier first estimates whether the ball is alive, followed by the probability that the home team possesses it conditioned on live play:
+
+\[
+P(L_t=1\mid X_t)
+\]
+
+\[
+P(H_t=1\mid L_t=1,X_t)
+\]
+
+These probabilities are combined into the final three-class distribution:
+
+\[
+P(H_t\mid X_t)
+=
+P(L_t=1\mid X_t)
+P(H_t\mid L_t=1,X_t)
+\]
+
+\[
+P(A_t\mid X_t)
+=
+P(L_t=1\mid X_t)
+\left[1-P(H_t\mid L_t=1,X_t)\right]
+\]
+
+\[
+P(D_t\mid X_t)
+=
+1-P(L_t=1\mid X_t)
+\]
+
+This factorization separates ball-status estimation from possession ownership. It also prevents the model from treating dead-ball frames as ordinary home-versus-away classification decisions.
+
+A frame-level classifier alone was not sufficient. A short tracking dropout can cause the most likely class to change for a few frames even when the same team remains in possession. Under an interval-based metric, these brief fluctuations can create additional possession spells and significantly affect the result. The semi-Markov decoder addresses this by considering entire segments rather than allowing every frame to change state independently. In particular, it uses a relatively inexpensive home-away transition, combined with a minimum possession duration, to retain genuine turnovers without producing excessive sub-second possession fragments.
+
+\subsection{Domain Adaptation Through Tracking Corruption}
+
+The competition match does not provide training labels, so the model must learn from other matches. We use seven public Bundesliga matches from IDSSE, but their clean tracking data differs considerably from the competition ATD. Training directly on these observations would create a domain gap: velocity changes, ball visibility, player continuity, and even the location of reacquired observations can have different distributions. Instead of assuming that a model trained on clean data will generalize, we deliberately corrupt IDSSE before extracting features.
+
+The corruption implementation is located in \path{src/corrupt.py}. Its parameters are estimated from aggregate, label-free statistics of the competition ATD. This allows the training data to reproduce important characteristics of the target tracking system without using possession labels from the provided match. Random parameters are drawn per match and seed, making the process repeatable while exposing the classifier to multiple realizations of tracking noise.
+
+Three corruption versions were developed. Version 1 introduces missing ball observations during approximately 80--95\% of stoppages, 5--13 second gaps during live play, short dropouts, slowly varying coordinate errors, occasional jumps, and fragmented player tracks. Player availability is reduced to approximately 10.2 of 11 players per team. This reproduces the broad visibility and continuity problems observed in ATD.
+
+Version 2 addresses an additional difference: the competition provider temporally smooths the ball trajectory. The three-frame velocity-change distribution has p90/p99 values of 2.2/4.2 m/s in ATD, compared with 6.3/17.9 m/s in clean IDSSE. We apply Gaussian smoothing with \(\sigma \sim U(5,7)\) frames to bring these distributions closer while preserving the general ball trajectory. This matters because a touch or deflection that produces a sharp velocity change in clean tracking may become a much weaker signal in the competition feed.
+
+Version 3 adds two visibility artefacts identified through adversarial validation, where a classifier is trained to distinguish IDSSE frames from ATD frames. First, the ATD often reacquires the ball only after it has been struck. The median speed of the first visible step after a gap is approximately 12 m/s, compared with 0.4 m/s in version-2-corrupted IDSSE. We therefore extend gaps until the ball starts moving, producing a median of approximately 10 m/s. Second, dead balls in the DFL feed are sometimes visible outside the pitch. Version-2-corrupted IDSSE contains such observations in approximately 16\% of visible frames, compared with 4\% in ATD. Version 3 hides the ball beyond the pitch lines to remove this artificial dead-ball cue.
+
+The official \path{baseline\_smooth50} baseline obtains 0.283 spellF1 on version-3-corrupted IDSSE. The organisers report 0.243 for the same baseline on the full BAR-ATH match. Although this does not prove that the two distributions are identical, it is a useful sanity check that the corrupted validation data is considerably more realistic than clean IDSSE.
+
+\subsection{Feature Representation}
+
+The feature extractor, implemented in \path{src/features.py}, produces 211 features per frame. The ATD does not provide reliable player identities, so the model does not depend on identity-specific player histories. It also avoids absolute attack-direction-dependent coordinates. Instead, the representation focuses on spatial relationships, ball movement, and collective team behaviour, allowing the same features to remain meaningful when attacking directions switch at half-time.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Feature groups used by the classifier.}
+
+\begin{tabularx}{\textwidth}{L{0.25\textwidth} Y}
+\toprule
+\textbf{Feature group} & \textbf{Information represented} \\
+\midrule
+
+Ball visibility and gaps
+&
+Current visibility, time since and until observation, gap length, and visible share over past and future 5-second and 20-second windows.
+\\
+
+Ball kinematics
+&
+Multi-lag speed, velocity change, turn angle across three frames, speed gain, and rolling maximum speed and velocity change over 0.5, 2, and 5 seconds.
+\\
+
+Ball-player relationships
+&
+First to third nearest-player distances, counts within 1, 2, 5, and 9.15 metres, nearest-team indicators, distance differences, log-ratios, and rolling distance statistics.
+\\
+
+Touch and control events
+&
+Last and next touch/control team, time since and until events, repeated touches by the same team, touch rate, team share, and nearest-team changes.
+\\
+
+Pitch geometry and restarts
+&
+Distances to pitch boundaries, corners, and centre; ball positions around tracking gaps; and player formations associated with corners, goal areas, kick-offs, and free kicks.
+\\
+
+Collective movement and team shape
+&
+Player speed and acceleration distributions, fast and stationary player shares, team spread, centroid distance, and ball position relative to each team block.
+\\
+
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The ball visibility features describe how much reliable tracking evidence is available around a frame. A single missing coordinate is not equivalent to a long tracking gap, so the model also observes the surrounding visibility history. Kinematic features capture sudden movement changes that may indicate a kick, pass, or deflection. Since the ATD smooths the ball trajectory, these features are extracted only after the corresponding corruption has been applied to IDSSE.
+
+Spatial features describe how close each team is to the ball. The model considers several nearest-player distances and the number of players within selected radii rather than relying on one potentially unreliable tracking point. Touch and control features build on these measurements: a touch is defined as a velocity change with a player within 2.5 metres, while a control frame is a slow-moving ball with a player within 1.5 metres. The model also tracks the team responsible for recent events, whether successive touches belong to the same team, and how often the nearest team changes.
+
+Pitch geometry and collective movement provide context when direct ball evidence is weak. Distances to touchlines, goal lines, corners, and the pitch centre help describe ball locations around restarts. Player formations near corner flags, goal areas, and the ball can provide additional evidence of set pieces. Collective speed and acceleration statistics describe whether players are slowing down together, which can be useful when the ball disappears during a stoppage. Finally, team-shape features summarize each block's spread, centroid position, and relationship to the ball.
+
+\subsection{Model Training and Temporal Decoding}
+
+The model implementation is located in \path{src/model.py}. The selected LightGBM configuration uses 400 boosting rounds, 63 leaves, and a learning rate of 0.05, with deterministic mode, a fixed random seed, and a fixed thread count. Training uses every fourth frame from the seven IDSSE matches, with two corruption seeds per match. The final ensemble contains two models: one trained on version-2-corrupted IDSSE and another trained on version-3-corrupted IDSSE. Their predicted probabilities are averaged to reduce sensitivity to uncertainty about the exact behaviour of the competition tracking system. In the reported comparison, the ensemble improves argmax spellF1 from 0.36 to 0.39.
+
+The final probabilities are passed to the semi-Markov Viterbi decoder in \path{src/decode.py}. For a sequence of \(T\) frames, the decoder maximizes the accumulated log-probability while subtracting transition costs:
+
+\[
+\hat{z}_{1:T}
+=
+\arg\max_{z_{1:T}}
+\left[
+\sum_{t=1}^{T}
+\log\left(\max(P_t(z_t),\epsilon)\right)
+-
+\sum_{t=2}^{T}C(z_{t-1},z_t)
+\right]
+\]
+
+The implementation operates over segment entries, allowing minimum segment durations to be enforced directly. The selected costs are \(c_{ha}=2\) for direct home-away switches, \(c_{to\_d}=32\) for transitions into dead ball, and \(c_{from\_d}=60\) for transitions out of dead ball. Minimum possession duration is 30 frames, or 1.2 seconds at 25 Hz, while minimum dead-ball duration is one frame. The probability floor is \(10^{-4}\). These settings preserve genuine turnovers while discouraging brief tracking artefacts from splitting otherwise continuous possessions.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Selected model and decoder configuration.}
+
+\begin{tabular}{lc}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+LightGBM boosting rounds & 400 \\
+Number of leaves & 63 \\
+Learning rate & 0.05 \\
+Training matches & 7 IDSSE matches \\
+Training corruption seeds & 11 and 12 \\
+Frame subsampling & Every fourth frame \\
+Ensemble members & 2 LightGBM models \\
+Home-away transition cost & 2 \\
+Transition cost to dead ball & 32 \\
+Transition cost from dead ball & 60 \\
+Minimum possession duration & 30 frames (1.2 s) \\
+Minimum dead-ball duration & 1 frame \\
+Probability floor & \(10^{-4}\) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Validation and Model Selection}
+
+All model and decoder choices are evaluated through leave-one-match-out (LOMO) cross-validation on corrupted IDSSE, using the competition's official metric implementation. For each fold, six matches are used to train the model and the seventh is held out for prediction. This is repeated until every match has served as the held-out match. The evaluation corruption uses a separate seed from the training data, and feature matrices are cached to avoid unnecessary recomputation.
+
+Decoder tuning is evaluated using a nested procedure. For each held-out match, decoder parameters are tuned using the other six matches and then applied to the held-out probabilities. This prevents the reported nested score from using the held-out labels during parameter selection. The experiment script also reports a fully tuned result using all seven matches, but that result is optimistic and is not the primary generalization estimate. The earlier validation utilities, \path{validate\_idsse.py} and \path{tune\_decode.py}, provide additional baseline comparisons and parameter searches; the final nested evaluation is reported through \path{experiment.py}.
+
+The final configuration was selected not because it produced the largest score among every tested combination, but because more complex alternatives offered little measurable improvement under realistic testing conditions.
+
+\begin{landscape}
+\pagestyle{empty}
+
+\begin{table}[p]
+\centering
+\caption{LOMO validation experiments on corrupted IDSSE.}
+
+\scriptsize
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.25}
+
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{c l l l l l c c}
+\toprule
+\textbf{\#}
+&
+\textbf{Features}
+&
+\textbf{Train corruption}
+&
+\textbf{Test corr.}
+&
+\textbf{Model}
+&
+\textbf{Decoder}
+&
+\textbf{spellF1 (nested)}
+&
+\textbf{macroF1}
+\\
+\midrule
+
+0 & v1 & v1 & v1 & LGBM & original Viterbi & 0.607 & 0.920 \\
+1 & v1 & v1 & v1 & LGBM & min-duration Viterbi & 0.613 & 0.920 \\
+2a & v1 & v1 & \textbf{v3} & LGBM & original Viterbi & 0.553 & 0.901 \\
+2b & v1 & v1 & \textbf{v3} & LGBM & min-duration & 0.562 & 0.901 \\
+3 & v1 & v2 & v2 & LGBM & min-duration & 0.568 & 0.908 \\
+4 & \textbf{v2} & v2 & v2 & LGBM & min-duration & 0.594 & 0.918 \\
+5 & v2 & v2 & v2 & LGBM + temporal stacking & min-duration & 0.601 & 0.916 \\
+6 & v2 & v3 & v3 & LGBM & min-duration & 0.584 & 0.916 \\
+7 & v2 & v2 & v3 & LGBM & min-duration & 0.595 & 0.916 \\
+8 & v2 & v2+v3 mixed seeds & v3 & LGBM & min-duration & 0.586 & 0.915 \\
+\textbf{9} & \textbf{v2} & \textbf{v2 $\parallel$ v3 ensemble} & v3 & \textbf{2$\times$ LGBM} & \textbf{min-duration Viterbi} & \textbf{0.596} & \textbf{0.917} \\
+10 & v2 & v3 & v3 & XGBoost & min-duration & 0.587 & 0.915 \\
+11 & v2 & ensemble \#9 + XGB & v3 & 3 models & min-duration & 0.596 & 0.917 \\
+12 & v2 & v2 & v3 & -- & -- & 0.598 & 0.914 \\
+ref & -- & -- & v3 & official baseline\_smooth50 & -- & 0.283 & 0.725 \\
+
+\bottomrule
+\end{tabular}%
+}
+
+\end{table}
+\end{landscape}
+
+\pagestyle{fancy}
+
+On realistic version-3 testing data, the previous pipeline in row 2a scores 0.553 spellF1 and 0.901 macroF1, while the selected final system in row 9 reaches 0.596 and 0.917. This corresponds to improvements of 0.043 spellF1 and 0.016 macroF1. The corruption experiments also show why the test distribution matters: the same version-1 model falls from 0.607 on version-1 evaluation data to 0.553 on version-3 data. Version-2 features improve spellF1 by 0.026 over the corresponding version-1 feature configuration, with the improvement appearing on all seven matches. The minimum-duration decoder and retuned costs contribute approximately another 0.01 over the original Viterbi configuration.
+
+Additional ensembles, XGBoost, and temporal stacking remain within approximately \(\pm 0.005\) of the selected system, below the approximately 0.01 run-to-run noise of the protocol. We retained row 9 because the additional complexity did not justify its cost, and stacking also introduced a mild leakage concern under LOMO. The public five-minute window is used only as a pipeline correctness check: the final file obtains 0.537 spellF1 and 0.680 macroF1 with 18 possessions, compared with 17 in the ground truth. This result is not used for model selection or decoder tuning.
+
+% =========================================================
+% 2. ASSETS USED AND HOW
+% =========================================================
+
+\section{Assets Used and How}
+
+The system deliberately uses a limited set of the competition assets. The tactical ATD is the only competition asset used as model input. Its ball and player positions are already expressed in pitch coordinates, so no additional homography transformation is required. The tactical metadata XML was missing from our bundle, which required an algorithmic home-away slot split. Broadcast ATD metadata was used only to verify the inferred home-team orientation through the \texttt{attack\_direction\_first\_half} field. It does not provide features or labels to the model.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Competition assets and the decision made for each one.}
+
+\begin{tabularx}{\textwidth}{L{0.28\textwidth} L{0.22\textwidth} Y}
+\toprule
+\textbf{Asset} & \textbf{Decision} & \textbf{How it was used or why it was dropped} \\
+\midrule
+
+Tactical ATD (\texttt{\_atd.txt})
+&
+Used
+&
+The only competition input to the model. Parsed into ball and player coordinates by \path{src/atd\_raw.py}.
+\\
+
+Tactical ATD metadata (\texttt{\_atd.xml})
+&
+Unavailable
+&
+Not present in our bundle. The home-away slot assignment was inferred from player counts and checked against first-half orientation.
+\\
+
+Broadcast ATD metadata
+&
+Partially used
+&
+Only \texttt{attack\_direction\_first\_half} of the home team was used as an orientation sanity check.
+\\
+
+Homography
+&
+Dropped
+&
+The ATD already provides pitch-coordinate positions, so an additional coordinate transformation was unnecessary for this task.
+\\
+
+Smart Tagging
+&
+Tried, then dropped
+&
+We considered using set-piece and phase information, but it could not be reproduced on IDSSE. Without a labelled proxy, its contribution could not be validated reliably.
+\\
+
+Tactical and broadcast videos
+&
+Not used
+&
+The final pipeline relies on tracking data only. No video-based detector or manual frame annotation is included.
+\\
+
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The missing tactical XML requires a small but important inference step. EPTS lists home slots before away slots, so we search for the split \(k\) that minimizes the number of graded frames in which either side contains more than eleven tracked objects:
+
+\[
+k^* =
+\arg\min_k
+\sum_{t \in G}
+\left[
+\mathbb{I}(n_H(t,k)>11)
++
+\mathbb{I}(n_A(t,k)>11)
+\right]
+\]
+
+The resulting assignment is home slots 0--23 and away slots 24--45. Both neighbouring splits perform substantially worse. We then check whether the inferred home block is positioned in the half it defends during the first half, using the broadcast metadata as an orientation reference. The goalkeeper slots provide an additional consistency check because they are always tracked at opposite ends and swap sides after half-time. The script refuses to continue if this check fails; it does not silently guess the team orientation.
+
+The ATD frame identifiers are one-based, while the submission uses zero-based video-frame indices. The converter therefore subtracts one from each ATD frame ID before assigning the tracking observations to internal arrays. This preserves the alignment between array index \(i\) and video frame \(i\), which is also the index used when writing the final submission. Missing observations remain \texttt{NaN}, while ball-status and possession fields are initialized as unknown because the competition tracking file does not provide those labels.
+
+The competition ATD also serves a second, limited purpose: its aggregate statistics calibrate the tracking corruption applied to IDSSE. The noise profile contains summaries such as visibility shares, gap lengths, and movement distributions. These statistics are used to approximate the characteristics of the tracking system, not to infer possession labels for the competition match. The ATD is later passed through the trained model for inference, but its ground-truth possession labels are never available to or used by the training process.
+
+% =========================================================
+% 3. TRAINING DATA
+% =========================================================
+
+\section{Training Data}
+
+IDSSE is the only labelled dataset used to train and validate the possession models. It was published by Bassek et al. (2025) in \textit{Scientific Data}, volume 12, article 195, under the CC-BY 4.0 licence. The dataset contains seven public matches supplied by DFL / Sportec Solutions: two from the German Bundesliga and five from the 2. Bundesliga. It provides tracking positions at 25 Hz, together with provider-generated ball-status and possession annotations. Across the seven matches, the dataset contains approximately 1.0 million frames and 3,060 possession intervals.
+
+The labels originate from Sportec Solutions' tracking and quality-control process, not from our own manual annotation or from a model trained on the competition match. Each frame has an official ball status indicating whether play is alive or dead and an official possession owner identifying the team in control during live play. We convert these annotations into the three states required by the competition: alive frames inherit the annotated owning team (\texttt{H} or \texttt{A}), while dead frames are assigned \texttt{D}. This is the same mechanical derivation used by the competition's ground-truth format.
+
+\[
+y_t =
+\begin{cases}
+H, & \text{alive and home possesses the ball},\\
+A, & \text{alive and away possesses the ball},\\
+D, & \text{ball status is dead}.
+\end{cases}
+\]
+
+\begin{table}[H]
+\centering
+\small
+\caption{Complete labelled training-data inventory.}
+
+\begin{tabularx}{\textwidth}{L{0.25\textwidth} Y}
+\toprule
+\textbf{Property} & \textbf{Details} \\
+\midrule
+Dataset & IDSSE \\
+Publication & Bassek et al. (2025), \textit{Scientific Data} 12:195 \\
+Provider & DFL / Sportec Solutions \\
+Licence & CC-BY 4.0 \\
+Matches & 7 public matches \\
+Competition levels & 2 Bundesliga matches and 5 matches from the 2. Bundesliga \\
+Tracking frequency & 25 Hz \\
+Label source & Sportec Solutions' official tracking and quality-control annotations \\
+Label types & Alive/dead ball status and home/away possession owner \\
+Total size & Approximately 1.0 million frames \\
+Possession intervals & Approximately 3,060 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+No labelled data from BAR-ATH, the provided competition match, is used for training, validation, decoder tuning, or model selection. The public five-minute ground-truth window is also excluded from all these stages. It is inspected only after the final pipeline is established, as a limited correctness check for frame alignment and label semantics.
+
+The distinction between labelled and unlabelled competition data is important. We do use the provided tactical ATD to build the inference input and to calculate aggregate, label-free tracking statistics. Those statistics guide the corruption process applied to IDSSE. However, they do not provide training targets, frame-level possession annotations, or a basis for selecting model parameters. All supervised learning and reported cross-validation results come from the seven public IDSSE matches.
+
+The IDSSE acquisition script, \path{scripts/download\_idsse.py}, retrieves the match metadata and tracking XML files from the public Figshare records. If Figshare refuses an automated request, the script prints the download links so that the files can be retrieved through a browser and placed in \path{data/idsse/raw/}. The files are loaded through Kloppy's Sportec provider with dead-ball information retained, converted into the internal NumPy array representation, and stored as compressed \texttt{.npz} files. This makes the original provider data reusable without repeatedly parsing XML during feature extraction and training.
+
+For model training, each of the seven matches is corrupted using deterministic seeds 11 and 12. Features are then extracted and subsampled every fourth frame. The held-out evaluation uses a separate corruption seed, 99, so that validation does not simply reuse the same tracking realization seen during training. In the final training stage, all seven labelled matches are used to fit the selected model members after the configuration has been chosen through LOMO evaluation.
+
+% =========================================================
+% 4. POSSESSION RULES
+% =========================================================
+
+\section{Possession Rules}
+
+The implementation follows the provider's possession definition: a possession is a maximal continuous run belonging to one team while the ball is alive. We do not assign possession independently to whichever team happens to have the nearest player in every frame. A team can retain possession while the ball is moving away from its players, while another player is approaching it, or during a loose-ball interaction. A new possession is created only when control changes according to the provider's annotation semantics.
+
+Loose balls and challenges remain part of the current team's possession until the opposing team gains control. This avoids treating every contested touch or temporary loss of proximity as a turnover. The model learns this behaviour from the provider's frame-level possession labels in IDSSE, while temporal decoding prevents brief ambiguous contacts from becoming separate possession spells.
+
+Dead-ball periods are represented by \texttt{D}, rather than being assigned to whichever team is nearest to the ball. Ownership is not predicted during these intervals. When play restarts, the next \texttt{H} or \texttt{A} segment begins a new possession. In other words, a restart separates the previous possession from the next one through a dead-ball segment. The model does not attempt to infer which team owns the ball while it is out of play.
+
+These rules are enforced jointly by the learned probabilities and the minimum-duration decoder. A direct home-away switch has a cost of 2, allowing genuine turnovers without requiring a dead-ball transition. Transitions into and out of \texttt{D} have higher costs of 32 and 60 respectively, discouraging short tracking gaps from splitting possession intervals. Home and away possession segments must last at least 30 frames (1.2 seconds), while a dead-ball segment may last one frame. The duration constraint is a deliberate compromise: it removes momentary classification flicker while retaining the short but meaningful turnovers that the evaluation metric should still recognize.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Operational possession rules.}
+
+\begin{tabularx}{\textwidth}{L{0.27\textwidth} Y}
+\toprule
+\textbf{Situation} & \textbf{Implemented behaviour} \\
+\midrule
+Stable possession
+&
+The current team retains possession as long as the ball is alive and control has not transferred.
+\\
+
+Loose ball
+&
+Remains assigned to the team currently in possession until the opponent gains control.
+\\
+
+Challenge or contested touch
+&
+Does not automatically create a new possession. A turnover is recorded only when the other team gains control.
+\\
+
+Ball tracking dropout
+&
+Does not automatically create a dead-ball state or a possession change. The classifier uses surrounding spatial and temporal evidence.
+\\
+
+Dead-ball situation
+&
+Assigned to \texttt{D}; no team ownership is predicted during the dead-ball interval.
+\\
+
+Restart
+&
+The next live \texttt{H} or \texttt{A} segment begins a new possession after the \texttt{D} segment.
+\\
+
+Minimum possession duration
+&
+30 frames, equivalent to 1.2 seconds at 25 Hz.
+\\
+
+Minimum dead-ball duration
+&
+1 frame.
+\\
+
+\bottomrule
+\end{tabularx}
+\end{table}
+
+% =========================================================
+% 5. LIMITATIONS
+% =========================================================
+
+\section{Limitations and Future Work}
+
+The domain gap is not fully closed. An adversarial classifier can still distinguish ATD from corrupted IDSSE, indicating that the two tracking distributions retain systematic differences. Part of this difference may come from genuine football-style variation, such as Barcelona's high defensive line and possession characteristics compared with German teams. The remaining gap is likely influenced by provider-specific sensor behaviour that is not yet represented in our corruption model, including player identity swaps, referee or ghost tracks, and the exact way tracking gaps start.
+
+Long ball-tracking gaps during live play are the main failure mode and account for approximately 10\% of missing ATD frames. When the ball is unavailable for an extended interval, the model must rely more heavily on player movement, team shape, and spatial relationships. A possession change occurring inside such a gap can therefore be missed or assigned late. The current features provide contextual evidence, but they cannot recover the ball's actual trajectory when no reliable observation exists.
+
+Restarts are another weak point. The ATD often reacquires a lost ball only after it has been struck, which makes the exact restart frame difficult to identify. A short possession immediately after a restart may consequently be detected late or missed entirely. The minimum-duration decoder can also suppress a very short predicted possession, even if that segment corresponds to a real event. This is an intentional trade-off against the sub-second flicker that creates unnecessary spells, but it remains a limitation when short genuine possessions occur.
+
+With more time, the most direct improvement would be to reconstruct the ball inside tracking gaps using the homography and a dedicated ball detector. This would provide actual spatial evidence instead of forcing the classifier to infer ball movement indirectly from player behaviour. The corruption process could also be learned through domain-adversarial training or importance weighting, reducing dependence on manually selected noise parameters. Smart Tagging could provide useful priors for set pieces and team phases, but it should only be added after a corresponding proxy can be reproduced and validated on IDSSE. Finally, a dedicated sequence model such as a BiGRU or TCN could replace temporal stacking, provided that it produces a measurable improvement under the same held-out-match protocol.
+
+The current system therefore prioritizes a small, reproducible model over additional complexity that has not demonstrated a reliable gain. Its main remaining weakness is not the ability to recognize familiar possession patterns, but the lack of direct ball evidence during long tracking gaps and the incomplete simulation of provider-specific tracking behaviour.
+
+% =========================================================
+% 6. REPRODUCTION
+% =========================================================
+
+\section{Reproduction}
+
+The project uses Python 3.12 and the dependencies listed in \path{requirements.txt}. Reproduction requires the public IDSSE files, the locally provided competition data bundle, the project configuration files, and the source code. The competition bundle should contain \path{tactical/} and \path{broadcast/} directories. On PowerShell, its location can be supplied through the \texttt{MTAH\_DATA\_DIR} environment variable:
+
+\begin{lstlisting}[style=terminal]
+pip install -r requirements.txt
+
+$env:MTAH_DATA_DIR = "E:\path\to\bundle"
+\end{lstlisting}
+
+\subsection{Data Acquisition and Conversion}
+
+Download and convert the seven public IDSSE matches first:
+
+\begin{lstlisting}[style=terminal]
+python scripts/download_idsse.py
+\end{lstlisting}
+
+The script downloads the metadata and tracking XML files for each match and converts them into compressed arrays under \path{data/idsse/}. If Figshare blocks an automated request, open the printed links in a browser, save the XML files under \path{data/idsse/raw/}, and run the command again. The downloader recognizes the original DFL filenames and skips matches that have already been converted.
+
+Next, convert the competition tactical ATD:
+
+\begin{lstlisting}[style=terminal]
+python scripts/convert_atd.py
+\end{lstlisting}
+
+The converter reads the tactical tracking file, infers the home-away split when the tactical XML is unavailable, checks the first-half orientation, and writes \path{data/atd/BAR-ATH\_tactical.npz}. It also prints aggregate tracking statistics. The optional missing-ball context analysis can be run separately:
+
+\begin{lstlisting}[style=terminal]
+python scripts/gap_context.py
+\end{lstlisting}
+
+\subsection{Experiments and Model Selection}
+
+The final experimental workflow uses \path{scripts/experiment.py}. Its self-test checks that the fast scoring implementation matches the official metric implementation. Tagged runs can then evaluate specific feature and corruption configurations:
+
+\begin{lstlisting}[style=terminal]
+python scripts/experiment.py --selftest
+
+python scripts/experiment.py --tag v2c3_lgb --feat 2 --corrupt 3
+
+python scripts/experiment.py --tag v2c2_on_c3 --feat 2 --corrupt 2 --eval-corrupt 3
+
+python scripts/experiment.py --ensemble v2c2_on_c3 v2c3_lgb --tag ens_c2c3
+\end{lstlisting}
+
+Each run stores held-out probabilities under \path{data/cache/} and appends its metrics to \path{outputs/experiments.jsonl}. The experiment script performs nested decoder evaluation so that the held-out match is not used to select its own decoder parameters. The earlier scripts \path{validate\_idsse.py} and \path{tune\_decode.py} are available for additional validation and decoder analysis, but are not required for the final training and prediction commands.
+
+\subsection{Final Training and Prediction}
+
+After the selected model and decoder configurations are in place, train the final model members and generate the submission:
+
+\begin{lstlisting}[style=terminal]
+python scripts/train_final.py
+python scripts/predict.py
+\end{lstlisting}
+
+The final training script reads \path{configs/model.json}, including the feature version, model backends, corruption versions, and model-specific parameters. The prediction script loads the converted competition arrays, rebuilds features, checks their ordering against \path{models/features.txt}, averages the configured model probabilities, and decodes each graded half using \path{configs/decode.json}. The resulting CSV is written to \path{submission/suniblona.csv}.
+
+The training and prediction pipeline uses fixed corruption seeds, deterministic LightGBM settings, and a fixed thread count controlled by \texttt{MTAH\_THREADS}, which defaults to eight. The reported reproduction run retrained the models and reproduced the submitted CSV byte for byte, with an identical MD5 hash. On a 16-thread laptop CPU, IDSSE conversion took approximately 15 minutes, final model training took approximately 6 minutes, and competition prediction took approximately 1 minute. These timings are reference measurements and will vary with hardware.
+
+Competition videos, tracking files, homography, Smart Tagging data, and derived competition arrays are excluded from version control through \path{.gitignore}. The repository therefore contains the code and configurations needed for reproduction without storing the provided match's private tracking data or derived arrays.
+
+\end{document}
